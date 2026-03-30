@@ -1,0 +1,17 @@
+[project]
+name = "kokoro-tts-server"
+version = "0.1.0"
+description = "OpenAI-compatible Kokoro TTS + Whisper transcription server"
+requires-python = ">=3.10"
+dependencies = [
+  "kokoro>=0.9",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
+  "soundfile>=0.13",
+  "numpy>=1.26",
+  "faster-whisper>=1.1",
+  "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+kokoro-tts-server = "server:main"

@@ -645,6 +645,69 @@ export const useProvidersStore = defineStore('providers', () => {
       },
       creator: createOpenAI,
     }),
+    'portkey-audio-speech': {
+      id: 'portkey-audio-speech',
+      category: 'speech',
+      tasks: ['text-to-speech'],
+      nameKey: 'settings.pages.providers.provider.portkey.title',
+      name: 'Portkey',
+      descriptionKey: 'settings.pages.providers.provider.portkey.description',
+      description: 'Route TTS through Portkey AI gateway',
+      icon: 'i-carbon:gateway-api',
+      defaultOptions: () => ({
+        apiKey: '',
+        virtualKey: '',
+      }),
+      createProvider: async (config: { apiKey: string, virtualKey: string }) => {
+        // NOTICE: Portkey acts as a gateway — the apiKey authenticates with Portkey,
+        // the virtualKey tells Portkey which upstream provider (e.g. OpenAI/Azure) to use.
+        const headers: Record<string, string> = {
+          'x-portkey-api-key': config.apiKey,
+          'x-portkey-virtual-key': config.virtualKey,
+        }
+        return merge(
+          createSpeechProvider({ apiKey: 'dummy', baseURL: 'https://api.portkey.ai/v1/', headers }),
+          createModelProvider({ apiKey: 'dummy', baseURL: 'https://api.portkey.ai/v1/', headers }),
+        )
+      },
+      capabilities: {
+        listVoices: async () => {
+          return [
+            { id: 'alloy', name: 'Alloy', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'ash', name: 'Ash', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'coral', name: 'Coral', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'echo', name: 'Echo', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'fable', name: 'Fable', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'onyx', name: 'Onyx', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'nova', name: 'Nova', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'sage', name: 'Sage', provider: 'portkey-audio-speech', languages: [] },
+            { id: 'shimmer', name: 'Shimmer', provider: 'portkey-audio-speech', languages: [] },
+          ] satisfies VoiceInfo[]
+        },
+        listModels: async () => {
+          return [
+            { id: 'tts-1', name: 'TTS-1', provider: 'portkey-audio-speech', description: 'Optimized for real-time', contextLength: 0, deprecated: false },
+            { id: 'tts-1-hd', name: 'TTS-1-HD', provider: 'portkey-audio-speech', description: 'Higher fidelity audio', contextLength: 0, deprecated: false },
+            { id: 'tts-hd', name: 'TTS-HD', provider: 'portkey-audio-speech', description: 'High definition TTS', contextLength: 0, deprecated: false },
+          ]
+        },
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config: Record<string, unknown>) => {
+          const errors: Error[] = []
+          if (!config.apiKey)
+            errors.push(new Error('Portkey API Key is required'))
+          if (!config.virtualKey)
+            errors.push(new Error('Virtual Key is required'))
+          return {
+            errors,
+            reason: errors.map(e => e.message).join(', '),
+            valid: errors.length === 0,
+          }
+        },
+      },
+    } as ProviderMetadata,
     'openai-audio-transcription': buildOpenAICompatibleProvider({
       id: 'openai-audio-transcription',
       name: 'OpenAI',
@@ -1729,6 +1792,208 @@ export const useProvidersStore = defineStore('providers', () => {
         },
       },
     },
+
+    'kokoro-server': buildOpenAICompatibleProvider({
+      id: 'kokoro-server',
+      name: 'Kokoro Server (Local)',
+      nameKey: 'settings.pages.providers.provider.kokoro-server.title',
+      descriptionKey: 'settings.pages.providers.provider.kokoro-server.description',
+      icon: 'i-lobe-icons:speaker',
+      description: 'Local GPU-accelerated TTS via Kokoro Python server.',
+      category: 'speech',
+      tasks: ['text-to-speech'],
+      defaultBaseUrl: 'http://localhost:8880/v1/',
+      creator: createOpenAI,
+      capabilities: {
+        listModels: async () => {
+          return [
+            {
+              id: 'kokoro',
+              name: 'Kokoro',
+              provider: 'kokoro-server',
+              description: 'Local Kokoro TTS model',
+              contextLength: 0,
+              deprecated: false,
+            },
+          ]
+        },
+        listVoices: async () => {
+          // Language code mapping (shared with kokoro-local)
+          const languageMap: Record<string, { code: string, title: string }> = {
+            a: { code: 'en-US', title: 'English (US)' },
+            b: { code: 'en-GB', title: 'English (UK)' },
+            j: { code: 'ja', title: 'Japanese' },
+            z: { code: 'zh-CN', title: 'Chinese (Mandarin)' },
+            e: { code: 'es', title: 'Spanish' },
+            f: { code: 'fr', title: 'French' },
+            h: { code: 'hi', title: 'Hindi' },
+            i: { code: 'it', title: 'Italian' },
+            p: { code: 'pt-BR', title: 'Portuguese (Brazil)' },
+          }
+
+          // Kokoro voice IDs with their language prefix
+          const voices = [
+            'af_heart',
+            'af_alloy',
+            'af_aoede',
+            'af_bella',
+            'af_jessica',
+            'af_kore',
+            'af_nicole',
+            'af_nova',
+            'af_river',
+            'af_sarah',
+            'af_sky',
+            'am_adam',
+            'am_echo',
+            'am_eric',
+            'am_fenrir',
+            'am_liam',
+            'am_michael',
+            'am_onyx',
+            'am_puck',
+            'am_santa',
+            'bf_alice',
+            'bf_emma',
+            'bf_isabella',
+            'bf_lily',
+            'bm_daniel',
+            'bm_fable',
+            'bm_george',
+            'bm_lewis',
+            'jf_alpha',
+            'jf_gongitsune',
+            'jf_nezumi',
+            'jf_tebukuro',
+            'jm_kumo',
+            'zf_xiaobei',
+            'zf_xiaoni',
+            'zf_xiaoxiao',
+            'zm_yunjian',
+            'zm_yunxi',
+            'zm_yunyang',
+            'ef_dora',
+            'em_alex',
+            'em_santa',
+            'ff_siwis',
+            'hf_alpha',
+            'hf_beta',
+            'hm_omega',
+            'hm_psi',
+            'if_sara',
+            'im_nicola',
+            'pf_dora',
+            'pm_alex',
+            'pm_santa',
+          ]
+
+          return voices.map((id) => {
+            const langPrefix = id[0]
+            const genderPrefix = id[1]
+            const name = id.split('_').slice(1).join(' ')
+            const lang = languageMap[langPrefix] || { code: langPrefix, title: langPrefix }
+            const gender = genderPrefix === 'f' ? 'female' : 'male'
+
+            return {
+              id,
+              name: `${name} (${gender}, ${lang.title})`,
+              provider: 'kokoro-server',
+              languages: [lang],
+              gender,
+            }
+          })
+        },
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: async (config: Record<string, unknown>) => {
+          const errors: Error[] = []
+          let baseUrl = typeof config.baseUrl === 'string' ? config.baseUrl.trim() : ''
+
+          if (!baseUrl) {
+            baseUrl = 'http://localhost:8880/v1/'
+          }
+
+          try {
+            const url = new URL(baseUrl)
+            if (url.host.length === 0) {
+              errors.push(new Error('Base URL is not absolute'))
+            }
+          }
+          catch {
+            errors.push(new Error('Base URL is invalid'))
+          }
+
+          if (errors.length > 0) {
+            return {
+              errors,
+              reason: errors.map(e => e.message).join(', '),
+              valid: false,
+            }
+          }
+
+          // No API key required for local server
+          return { errors: [], reason: '', valid: true }
+        },
+      },
+    }),
+    'kokoro-server-transcription': buildOpenAICompatibleProvider({
+      id: 'kokoro-server-transcription',
+      name: 'Kokoro Server Transcription (Local)',
+      nameKey: 'settings.pages.providers.provider.kokoro-server-transcription.title',
+      descriptionKey: 'settings.pages.providers.provider.kokoro-server-transcription.description',
+      icon: 'i-lobe-icons:speaker',
+      description: 'Local Whisper transcription via Kokoro Python server.',
+      category: 'transcription',
+      tasks: ['speech-to-text', 'automatic-speech-recognition', 'asr', 'stt'],
+      defaultBaseUrl: 'http://localhost:8880/v1/',
+      creator: createOpenAI,
+      capabilities: {
+        listModels: async () => {
+          return [
+            {
+              id: 'large-v3-turbo',
+              name: 'Whisper Large V3 Turbo',
+              provider: 'kokoro-server-transcription',
+              description: 'Local faster-whisper model',
+              contextLength: 0,
+              deprecated: false,
+            },
+          ]
+        },
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: async (config: Record<string, unknown>) => {
+          const errors: Error[] = []
+          let baseUrl = typeof config.baseUrl === 'string' ? config.baseUrl.trim() : ''
+
+          if (!baseUrl) {
+            baseUrl = 'http://localhost:8880/v1/'
+          }
+
+          try {
+            const url = new URL(baseUrl)
+            if (url.host.length === 0) {
+              errors.push(new Error('Base URL is not absolute'))
+            }
+          }
+          catch {
+            errors.push(new Error('Base URL is invalid'))
+          }
+
+          if (errors.length > 0) {
+            return {
+              errors,
+              reason: errors.map(e => e.message).join(', '),
+              valid: false,
+            }
+          }
+
+          return { errors: [], reason: '', valid: true }
+        },
+      },
+    }),
   }
 
   // Progressive migration bridge:
@@ -1780,6 +2045,34 @@ export const useProvidersStore = defineStore('providers', () => {
       result[key] = state.isConfigured
     }
 
+    // Mark Gemini as configured if env key is present (even without localStorage credentials)
+    if (!result['google-generative-ai'] && import.meta.env.VITE_GEMINI_API_KEY) {
+      result['google-generative-ai'] = true
+    }
+
+    // Mark kokoro-local as configured when it has a valid model in its default config.
+    // The validator is synchronous (just checks model name) so this is safe. Without this,
+    // the speech store watcher can reset activeSpeechProvider to 'speech-noop' before
+    // async validation completes.
+    if (!result['kokoro-local'] && providerRuntimeState.value['kokoro-local']) {
+      const config = providerCredentials.value['kokoro-local']
+      if (config?.model && KOKORO_MODELS.some(m => m.id === config.model)) {
+        result['kokoro-local'] = true
+      }
+    }
+
+    // Mark kokoro-server providers as configured when credentials exist with a valid base URL.
+    // These are local servers that don't require API keys, so we fast-path them to avoid
+    // the async validation race that can reset the active provider.
+    for (const serverId of ['kokoro-server', 'kokoro-server-transcription'] as const) {
+      if (!result[serverId] && providerRuntimeState.value[serverId]) {
+        const config = providerCredentials.value[serverId]
+        if (config) {
+          result[serverId] = true
+        }
+      }
+    }
+
     return result
   })
 
@@ -1804,7 +2097,16 @@ export const useProvidersStore = defineStore('providers', () => {
       }
     }
 
-    const config = providerCredentials.value[providerId]
+    let config = providerCredentials.value[providerId]
+
+    // Inject env-based credentials for Gemini (memory-only, never persisted)
+    if (providerId === 'google-generative-ai') {
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY
+      if (envKey && (!config || !(config as Record<string, unknown>).apiKey)) {
+        config = { ...config, apiKey: envKey }
+      }
+    }
+
     if (!config && providerId !== 'browser-web-speech-api')
       return false
 
@@ -2149,6 +2451,14 @@ export const useProvidersStore = defineStore('providers', () => {
       providerCredentials.value[providerId] = config
     }
 
+    // Inject env-based credentials for Gemini (memory-only, never persisted to localStorage)
+    if (providerId === 'google-generative-ai') {
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY
+      if (envKey && (!config || !(config as Record<string, unknown>).apiKey)) {
+        config = { ...config, apiKey: envKey }
+      }
+    }
+
     if (!config && !noCredentials)
       throw new Error(`Provider credentials for ${providerId} not found`)
 
@@ -2241,7 +2551,15 @@ export const useProvidersStore = defineStore('providers', () => {
   })
 
   function getProviderConfig(providerId: string) {
-    return providerCredentials.value[providerId]
+    let config = providerCredentials.value[providerId]
+    // Inject env-based credentials for Gemini (memory-only, never persisted)
+    if (providerId === 'google-generative-ai') {
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY
+      if (envKey && (!config || !(config as Record<string, unknown>).apiKey)) {
+        config = { ...config, apiKey: envKey }
+      }
+    }
+    return config
   }
 
   return {

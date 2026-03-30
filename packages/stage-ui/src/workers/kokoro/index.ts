@@ -1,6 +1,27 @@
 /**
  * Kokoro TTS Worker Manager
- * Manages communication with the Kokoro TTS worker thread
+ *
+ * Manages communication with the Kokoro TTS worker thread that runs the
+ * Kokoro-82M ONNX model for local text-to-speech synthesis.
+ *
+ * ## Lifecycle
+ *
+ * 1. `getKokoroWorker()` — creates the singleton worker thread (lazy).
+ * 2. `worker.loadModel(quantization, platform)` — downloads and initializes the
+ *    ONNX model inside the worker. This is ~80MB (q8) to ~600MB (fp32) and is
+ *    cached by the browser after first download. **Must be called before generate().**
+ * 3. `worker.generate(text, voice)` — synthesizes speech and returns a WAV ArrayBuffer.
+ *
+ * ## Integration
+ *
+ * The `kokoro-local` provider in `stores/providers.ts` wraps this manager as an
+ * OpenAI-compatible speech provider. The provider's `capabilities.loadModel()` calls
+ * `worker.loadModel()` and is triggered either:
+ * - Automatically on app startup (when configured via `.env` — see `App.vue`).
+ * - Manually via the provider settings UI.
+ *
+ * If `generate()` is called before `loadModel()`, the worker throws
+ * "Kokoro TTS generation failed: No model loaded".
  */
 
 import type { LoadedMessage, VoiceKey, Voices, WorkerRequest, WorkerResponse } from './types'

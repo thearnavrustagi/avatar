@@ -9,12 +9,22 @@ import { DisplayModelFormat, useDisplayModelsStore } from '../display-models'
 
 export type StageModelRenderer = 'live2d' | 'vrm' | 'disabled' | undefined
 
+/**
+ * Stage model settings — controls which 3D/2D avatar model is rendered on the main stage.
+ *
+ * The `stageModelSelected` ID is persisted in localStorage and looked up against
+ * the `DisplayModelsStore` (presets + user-imported models). When the selected model
+ * changes, `updateStageModel()` resolves the model definition, sets the renderer
+ * type (`live2d` | `vrm` | `disabled`), and generates a URL for the scene component.
+ *
+ * Default: `preset-vrm-tieguy` (Tieguy). Changed via settings > scene > "Select Model".
+ */
 export const useSettingsStageModel = defineStore('settings-stage-model', () => {
   const displayModelsStore = useDisplayModelsStore()
   let stageModelUpdateSequence = 0
   const stageModelStorageKey = 'settings/stage/model'
 
-  const stageModelSelectedState = useLocalStorageManualReset<string>(stageModelStorageKey, 'preset-live2d-1')
+  const stageModelSelectedState = useLocalStorageManualReset<string>(stageModelStorageKey, 'preset-vrm-tieguy')
   const stageModelSelected = computed<string>({
     get: () => stageModelSelectedState.value,
     set: (value) => {
@@ -44,7 +54,12 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
     const requestId = ++stageModelUpdateSequence
     const selectedModelId = stageModelSelectedState.value
 
+    // eslint-disable-next-line no-console
+    console.debug('[StageModel] updateStageModel called', { selectedModelId, requestId })
+
     if (!selectedModelId) {
+      // eslint-disable-next-line no-console
+      console.debug('[StageModel] No model selected, disabling renderer')
       replaceStageModelUrl(undefined)
       stageModelSelectedDisplayModel.value = undefined
       stageModelRenderer.value = 'disabled'
@@ -56,11 +71,15 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
       return
 
     if (!model) {
+      console.warn('[StageModel] Model not found for id:', selectedModelId)
       replaceStageModelUrl(undefined)
       stageModelSelectedDisplayModel.value = undefined
       stageModelRenderer.value = 'disabled'
       return
     }
+
+    // eslint-disable-next-line no-console
+    console.debug('[StageModel] Model resolved', { id: model.id, format: model.format, type: model.type })
 
     switch (model.format) {
       case DisplayModelFormat.Live2dZip:
@@ -87,6 +106,8 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
       replaceStageModelUrl(model.url)
     }
 
+    // eslint-disable-next-line no-console
+    console.debug('[StageModel] Renderer set to', stageModelRenderer.value, 'URL:', stageModelSelectedUrl.value?.slice(0, 80))
     stageModelSelectedDisplayModel.value = model
   }
 

@@ -1,10 +1,12 @@
 chat:
   message:
     character-name:
-      airi: AIRI
+      airi: Pritam Nair
       core-system: Core System
       you: You
   reasoning: Reasoning
+  tts-progress:
+    generating: Generating speech...
 message: Say something...
 send-mode:
   title: Send key

@@ -780,6 +780,12 @@ pages:
           default-text: Hello! This is a test of the Kokoro text-to-speech system.
           title: Voice Playground
         title: Kokoro TTS (Local)
+      kokoro-server:
+        description: Local GPU-accelerated TTS via Kokoro Python server.
+        title: Kokoro Server (Local)
+      kokoro-server-transcription:
+        description: Local Whisper transcription via Kokoro Python server.
+        title: Kokoro Server Transcription (Local)
       fireworks:
         description: fireworks.ai
         title: Fireworks.ai

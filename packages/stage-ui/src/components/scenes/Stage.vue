@@ -1,9 +1,42 @@
 <script setup lang="ts">
+/**
+ * Stage Scene — the main rendering surface for the avatar model and speech pipeline.
+ *
+ * ## Speech / Lipsync Pipeline
+ *
+ * The pipeline flows as follows:
+ *
+ *   1. **Chat orchestrator** receives user input and streams tokens from the LLM
+ *      (e.g. Gemini via `google-generative-ai` provider).
+ *   2. Literal tokens are forwarded to a **SpeechPipeline** (`createSpeechPipeline`)
+ *      which batches text and calls the active TTS provider (e.g. `kokoro-local`,
+ *      `elevenlabs`, or `openai-compatible-audio-speech`).
+ *   3. The TTS provider returns an `AudioBuffer` which is played through a
+ *      **PlaybackManager** (`createPlaybackManager`).
+ *   4. During playback, the audio is connected to a **lipsync analyzer**:
+ *      - **Live2D**: `createLive2DLipSync` (wlipsync WASM) reads audio frames via
+ *        an `AudioNode` and outputs a `mouthOpenSize` value per frame.
+ *      - **VRM**: `useVRMLipSync` (in `@proj-airi/stage-ui-three`) connects the
+ *        `currentAudioSource` AudioBufferSourceNode to a wLipSync node and maps
+ *        viseme weights to VRM blend shapes each frame.
+ *   5. Special tokens (emotions, delays) are routed through separate queues
+ *      (`emotionsQueue`, `delaysQueue`) to trigger model expressions/motions.
+ *
+ * ## Prerequisites for speech to work
+ *
+ * - A **chat provider** must be configured with a valid API key
+ *   (e.g. `VITE_GEMINI_API_KEY` in `.env`).
+ * - A **speech provider** must be configured:
+ *   - `kokoro-local`: Requires ONNX model download (~80MB for q8).
+ *     The model is loaded via `KokoroWorkerManager.loadModel()`.
+ *     When auto-configured via `.env`, `App.vue` triggers this automatically.
+ *   - Cloud providers (ElevenLabs, OpenAI-compatible): Need API keys.
+ * - The browser **AudioContext** must be resumed (requires user interaction).
+ */
 import type { DuckDBWasmDrizzleDatabase } from '@proj-airi/drizzle-duckdb-wasm'
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
-import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
-import type { UnElevenLabsOptions } from 'unspeech'
+import type { TextSegment, TextToken } from '@proj-airi/pipelines-audio'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
@@ -11,7 +44,7 @@ import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
 import { getImportUrlBundles } from '@proj-airi/drizzle-duckdb-wasm/bundles/import-url-browser'
 import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
-import { createPlaybackManager, createSpeechPipeline } from '@proj-airi/pipelines-audio'
+import { createPlaybackManager, createPushStream, createSpeechPipeline, createTtsSegmentStream } from '@proj-airi/pipelines-audio'
 import { Live2DScene, useLive2d } from '@proj-airi/stage-ui-live2d'
 import { ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
@@ -20,7 +53,6 @@ import { useBroadcastChannel } from '@vueuse/core'
 // import { createTransformers } from '@xsai-transformers/embed'
 // import embedWorkerURL from '@xsai-transformers/embed/worker?worker&url'
 // import { embed } from '@xsai/embed'
-import { generateSpeech } from '@xsai/generate-speech'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
@@ -35,6 +67,7 @@ import { useSpeechStore } from '../../stores/modules/speech'
 import { useProvidersStore } from '../../stores/providers'
 import { useSettings } from '../../stores/settings'
 import { useSpeechRuntimeStore } from '../../stores/speech-runtime'
+import { useTtsProgressStore } from '../../stores/tts-progress'
 import { shouldRunLive2dLipSyncLoop } from './runtime'
 
 const props = withDefaults(defineProps<{
@@ -228,91 +261,143 @@ const playbackManager = createPlaybackManager<AudioBuffer>({
   ownerOverflowPolicy: 'steal-oldest',
 })
 
-const speechPipeline = createSpeechPipeline<AudioBuffer>({
-  tts: async (request, signal) => {
-    if (signal.aborted)
-      return null
+// NOTICE: For local TTS providers (e.g. kokoro-local), buffer the entire response
+// into a single TTS call to avoid per-chunk WASM inference overhead. Cloud providers
+// use the default sentence-level chunking for low-latency streaming.
+const LOCAL_TTS_PROVIDERS = new Set(['kokoro-local'])
 
-    if (activeSpeechProvider.value === 'speech-noop')
-      return null
-
-    if (!activeSpeechProvider.value)
-      return null
-
-    const provider = await providersStore.getProviderInstance(activeSpeechProvider.value) as SpeechProviderWithExtraOptions<string, UnElevenLabsOptions>
-    if (!provider) {
-      console.error('Failed to initialize speech provider')
-      return null
+function createSegmenterForProvider() {
+  return (tokens: ReadableStream<TextToken>, meta: { streamId: string, intentId: string }) => {
+    if (!LOCAL_TTS_PROVIDERS.has(activeSpeechProvider.value ?? '')) {
+      return createTtsSegmentStream(tokens, meta)
     }
 
+    // For local TTS: collect all tokens, then emit a single segment on flush/end.
+    const { stream, write, close } = createPushStream<TextSegment>()
+    let buffer = ''
+    const specials: string[] = []
+
+    void (async () => {
+      const reader = tokens.getReader()
+      try {
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done)
+            break
+          if (!value)
+            continue
+
+          if (value.type === 'literal') {
+            buffer += value.value ?? ''
+          }
+          else if (value.type === 'special') {
+            // Emit specials as separate segments so emotions still fire mid-stream
+            specials.push(value.value ?? '')
+            write({
+              streamId: meta.streamId,
+              intentId: meta.intentId,
+              segmentId: `${meta.streamId}:special:${Date.now()}`,
+              text: '',
+              special: value.value ?? null,
+              reason: 'special',
+              createdAt: Date.now(),
+            })
+          }
+          else if (value.type === 'flush') {
+            // Flush: emit accumulated text as a single chunk
+            if (buffer.trim()) {
+              write({
+                streamId: meta.streamId,
+                intentId: meta.intentId,
+                segmentId: `${meta.streamId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+                text: buffer.trim(),
+                special: null,
+                reason: 'flush',
+                createdAt: Date.now(),
+              })
+              buffer = ''
+            }
+          }
+        }
+        // End of stream: emit remaining text
+        if (buffer.trim()) {
+          write({
+            streamId: meta.streamId,
+            intentId: meta.intentId,
+            segmentId: `${meta.streamId}:final:${Date.now()}`,
+            text: buffer.trim(),
+            special: null,
+            reason: 'flush',
+            createdAt: Date.now(),
+          })
+        }
+      }
+      catch (err) {
+        console.error('[Stage] Local TTS segmenter error:', err)
+      }
+      finally {
+        reader.releaseLock()
+        close()
+      }
+    })()
+
+    return stream
+  }
+}
+
+const speechPipeline = createSpeechPipeline<AudioBuffer>({
+  segmenter: createSegmenterForProvider(),
+  tts: async (request, signal) => {
+    // NOTICE: Routed through Portkey AI gateway → Azure OpenAI TTS
+    const TTS_VOICE = 'alloy'
+
+    // eslint-disable-next-line no-console
+    console.debug('[TTS] tts() called', { text: request.text?.slice(0, 80), aborted: signal.aborted })
+
+    if (signal.aborted)
+      return null
     if (!request.text && !request.special)
       return null
 
-    const providerConfig = providersStore.getProviderConfig(activeSpeechProvider.value)
-
-    // For OpenAI Compatible providers, always use provider config for model and voice
-    // since these are manually configured in provider settings
-    let model = activeSpeechModel.value
-    let voice = activeSpeechVoice.value
-
-    if (activeSpeechProvider.value === 'openai-compatible-audio-speech') {
-      // Always prefer provider config for OpenAI Compatible (user configured it there)
-      if (providerConfig?.model) {
-        model = providerConfig.model as string
-      }
-      else {
-        // Fallback to default if not in provider config
-        model = 'tts-1'
-        console.warn('[Speech Pipeline] OpenAI Compatible: No model in provider config, using default', { providerConfig })
-      }
-
-      if (providerConfig?.voice) {
-        voice = {
-          id: providerConfig.voice as string,
-          name: providerConfig.voice as string,
-          description: providerConfig.voice as string,
-          previewURL: '',
-          languages: [{ code: 'en', title: 'English' }],
-          provider: activeSpeechProvider.value,
-          gender: 'neutral',
-        }
-      }
-      else {
-        // Fallback to default if not in provider config
-        voice = {
-          id: 'alloy',
-          name: 'alloy',
-          description: 'alloy',
-          previewURL: '',
-          languages: [{ code: 'en', title: 'English' }],
-          provider: activeSpeechProvider.value,
-          gender: 'neutral',
-        }
-        console.warn('[Speech Pipeline] OpenAI Compatible: No voice in provider config, using default', { providerConfig })
-      }
-    }
-
-    if (!model || !voice)
-      return null
-
-    const input = ssmlEnabled.value
-      ? speechStore.generateSSML(request.text, voice, { ...providerConfig, pitch: pitch.value })
-      : request.text
-
     try {
-      const res = await generateSpeech({
-        ...provider.speech(model, providerConfig),
-        input,
-        voice: voice.id,
+      const res = await fetch('https://api.portkey.ai/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-portkey-api-key': '1JZp0JDG2yPwqJt3QeO4E2ioNnak',
+          'x-portkey-virtual-key': 'swedencentral-azure-openai',
+        },
+        body: JSON.stringify({
+          model: 'tts-hd',
+          input: request.text,
+          voice: TTS_VOICE,
+          response_format: 'wav',
+          speed: 1.0,
+        }),
+        signal,
       })
 
-      if (signal.aborted || !res || res.byteLength === 0)
+      if (!res.ok) {
+        console.error('[TTS] Server returned', res.status, await res.text().catch(() => ''))
+        return null
+      }
+
+      const arrayBuffer = await res.arrayBuffer()
+      // eslint-disable-next-line no-console
+      console.debug('[TTS] Got audio', { byteLength: arrayBuffer.byteLength })
+
+      if (signal.aborted || !arrayBuffer || arrayBuffer.byteLength === 0)
         return null
 
-      const audioBuffer = await audioContext.decodeAudioData(res)
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      // eslint-disable-next-line no-console
+      console.debug('[TTS] Audio decoded', { duration: audioBuffer.duration, sampleRate: audioBuffer.sampleRate })
       return audioBuffer
     }
-    catch {
+    catch (err) {
+      if (signal.aborted)
+        return null
+      console.error('[TTS] Failed:', err)
       return null
     }
   },
@@ -320,6 +405,14 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
 })
 
 void speechRuntimeStore.registerHost(speechPipeline)
+
+// Wire TTS progress tracking
+const ttsProgressStore = useTtsProgressStore()
+speechPipeline.on('onIntentStart', () => ttsProgressStore.onIntentStart())
+speechPipeline.on('onTtsRequest', () => ttsProgressStore.onTtsRequest())
+speechPipeline.on('onTtsResult', () => ttsProgressStore.onTtsResult())
+speechPipeline.on('onIntentEnd', () => ttsProgressStore.onIntentEnd())
+speechPipeline.on('onIntentCancel', () => ttsProgressStore.onIntentCancel())
 
 speechPipeline.on('onSpecial', (segment) => {
   if (segment.special)
@@ -439,6 +532,14 @@ function setupAnalyser() {
 let currentChatIntent: ReturnType<typeof speechRuntimeStore.openIntent> | null = null
 
 chatHookCleanups.push(onBeforeMessageComposed(async () => {
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] onBeforeMessageComposed', {
+    provider: activeSpeechProvider.value,
+    model: activeSpeechModel.value,
+    voiceId: activeSpeechVoice.value?.id,
+    voiceObj: !!activeSpeechVoice.value,
+    renderer: stageModelRenderer.value,
+  })
   playbackManager.stopAll('new-message')
 
   setupAnalyser()
@@ -477,20 +578,27 @@ chatHookCleanups.push(onBeforeSend(async () => {
 }))
 
 chatHookCleanups.push(onTokenLiteral(async (literal) => {
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] onTokenLiteral', { literal: literal?.slice(0, 40), hasIntent: !!currentChatIntent })
   currentChatIntent?.writeLiteral(literal)
 }))
 
 chatHookCleanups.push(onTokenSpecial(async (special) => {
-  // console.debug('Stage received special token:', special)
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] onTokenSpecial', { special, hasIntent: !!currentChatIntent })
   currentChatIntent?.writeSpecial(special)
 }))
 
 chatHookCleanups.push(onStreamEnd(async () => {
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] onStreamEnd, flushing intent')
   delaysQueue.enqueue(llmInferenceEndToken)
   currentChatIntent?.writeFlush()
 }))
 
 chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] onAssistantResponseEnd, ending intent')
   currentChatIntent?.end()
   currentChatIntent = null
   // const res = await embed({
@@ -523,6 +631,11 @@ if (typeof window !== 'undefined') {
 onMounted(async () => {
   db.value = drizzle({ connection: { bundles: getImportUrlBundles() } })
   await db.value.execute(`CREATE TABLE memory_test (vec FLOAT[768]);`)
+})
+
+watch([stageModelRenderer, stageModelSelectedUrl], ([renderer, url]) => {
+  // eslint-disable-next-line no-console
+  console.debug('[Stage] Model state changed', { renderer, url: url?.slice(0, 80), showStage: showStage.value })
 })
 
 watch([stageModelRenderer, () => props.paused], ([renderer]) => {

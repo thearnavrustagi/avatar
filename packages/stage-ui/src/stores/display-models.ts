@@ -30,6 +30,7 @@ const presetVrmAvatarAUrl = new URL('../assets/vrm/models/AvatarSample-A/AvatarS
 const presetVrmAvatarAPreview = new URL('../assets/vrm/models/AvatarSample-A/preview.png', import.meta.url).href
 const presetVrmAvatarBUrl = new URL('../assets/vrm/models/AvatarSample-B/AvatarSample_B.vrm', import.meta.url).href
 const presetVrmAvatarBPreview = new URL('../assets/vrm/models/AvatarSample-B/preview.png', import.meta.url).href
+const presetVrmTieguyUrl = new URL('../assets/vrm/models/Tieguy/tieguy.vrm', import.meta.url).href
 
 export interface DisplayModelFile {
   id: string
@@ -56,6 +57,7 @@ const displayModelsPresets: DisplayModel[] = [
   { id: 'preset-live2d-2', format: DisplayModelFormat.Live2dZip, type: 'url', url: presetLive2dFreeUrl, name: 'Hiyori (Free)', previewImage: presetLive2dPreview, importedAt: 1733113886840 },
   { id: 'preset-vrm-1', format: DisplayModelFormat.VRM, type: 'url', url: presetVrmAvatarAUrl, name: 'AvatarSample_A', previewImage: presetVrmAvatarAPreview, importedAt: 1733113886840 },
   { id: 'preset-vrm-2', format: DisplayModelFormat.VRM, type: 'url', url: presetVrmAvatarBUrl, name: 'AvatarSample_B', previewImage: presetVrmAvatarBPreview, importedAt: 1733113886840 },
+  { id: 'preset-vrm-tieguy', format: DisplayModelFormat.VRM, type: 'url', url: presetVrmTieguyUrl, name: 'Tieguy', importedAt: 1733113886840 },
 ]
 
 export const useDisplayModelsStore = defineStore('display-models', () => {
@@ -85,14 +87,21 @@ export const useDisplayModelsStore = defineStore('display-models', () => {
   }
 
   async function getDisplayModel(id: string) {
+    // eslint-disable-next-line no-console
+    console.debug('[DisplayModels] getDisplayModel called', { id, loading: displayModelsFromIndexedDBLoading.value })
     await until(displayModelsFromIndexedDBLoading).toBe(false)
     const modelFromFile = await localforage.getItem<DisplayModelFile>(id)
     if (modelFromFile) {
+      // eslint-disable-next-line no-console
+      console.debug('[DisplayModels] Found model in IndexedDB:', id)
       return modelFromFile
     }
 
     // Fallback to in-memory presets if not found in localforage
-    return displayModelsPresets.find(model => model.id === id)
+    const preset = displayModelsPresets.find(model => model.id === id)
+    // eslint-disable-next-line no-console
+    console.debug('[DisplayModels] Preset lookup for', id, preset ? 'found' : 'NOT FOUND')
+    return preset
   }
 
   const loadLive2DModelPreview = (file: File) => generateLive2DPreview(file)

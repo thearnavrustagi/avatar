@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ChatAssistantMessage, ChatHistoryItem, ContextMessage } from '../../../types/chat'
 
+import { Progress } from '@proj-airi/ui'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -8,6 +9,7 @@ import ChatAssistantItem from './assistant-item.vue'
 import ChatErrorItem from './error-item.vue'
 import ChatUserItem from './user-item.vue'
 
+import { useTtsProgressStore } from '../../../stores/tts-progress'
 import { getChatHistoryItemKey } from './message-key'
 
 const props = withDefaults(defineProps<{
@@ -25,6 +27,7 @@ const props = withDefaults(defineProps<{
 
 const chatHistoryRef = ref<HTMLDivElement>()
 
+const ttsProgressStore = useTtsProgressStore()
 const { t } = useI18n()
 const labels = computed(() => ({
   assistant: props.assistantLabel ?? t('stage.chat.message.character-name.airi'),
@@ -102,5 +105,15 @@ const renderMessages = computed<ChatHistoryItem[]>(() => {
         />
       </div>
     </template>
+
+    <div
+      v-if="ttsProgressStore.active && ttsProgressStore.totalSegments > 0"
+      :class="['px-3 pb-2']"
+    >
+      <div :class="['text-xs text-neutral-400 mb-1']">
+        {{ t('stage.chat.tts-progress.generating') }}
+      </div>
+      <Progress :progress="ttsProgressStore.progress" bar-class="bg-primary-400/60" />
+    </div>
   </div>
 </template>

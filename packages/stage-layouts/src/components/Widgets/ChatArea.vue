@@ -417,8 +417,13 @@ async function stopListening() {
 
 // Start listening when microphone is enabled and stream is available
 watch(enabled, async (val) => {
-  if (val && stream.value) {
-    // Microphone was just enabled and we have a stream, start transcription
+  if (val) {
+    // Microphone was just enabled — ensure we have permission and a stream
+    if (!stream.value) {
+      await askPermission()
+      startStream()
+    }
+    // startListening will wait for stream if needed
     await startListening()
   }
   else if (!val && isListening.value) {
@@ -525,22 +530,25 @@ watch(sendMode, () => {
           </DropdownMenuPortal>
         </DropdownMenuRoot>
 
-        <!-- Microphone icon button -->
+        <!-- Microphone icon button: click to toggle, long-press/right-click for settings -->
         <PopoverRoot v-model:open="hearingPopoverOpen">
+          <button
+            :class="[
+              'h-8 w-8 flex items-center justify-center rounded-md outline-none',
+              'transition-all duration-200 active:scale-95',
+            ]"
+            text="lg neutral-500 dark:neutral-400"
+            :title="enabled ? t('settings.hearing.title') : t('settings.hearing.title')"
+            @click="enabled = !enabled"
+            @contextmenu.prevent="hearingPopoverOpen = !hearingPopoverOpen"
+          >
+            <Transition name="fade" mode="out-in">
+              <IndicatorMicVolume v-if="enabled" class="h-5 w-5" />
+              <div v-else class="i-ph:microphone-slash h-5 w-5" />
+            </Transition>
+          </button>
           <PopoverTrigger as-child>
-            <button
-              :class="[
-                'h-8 w-8 flex items-center justify-center rounded-md outline-none',
-                'transition-all duration-200 active:scale-95',
-              ]"
-              text="lg neutral-500 dark:neutral-400"
-              :title="t('settings.hearing.title')"
-            >
-              <Transition name="fade" mode="out-in">
-                <IndicatorMicVolume v-if="enabled" class="h-5 w-5" />
-                <div v-else class="i-ph:microphone-slash h-5 w-5" />
-              </Transition>
-            </button>
+            <span class="hidden" />
           </PopoverTrigger>
           <PopoverContent
             side="top"

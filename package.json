@@ -43,6 +43,10 @@
     "open:ios": "pnpm -rF @proj-airi/stage-pocket run open:ios",
     "knip": "knip"
   },
+  "dependencies": {
+    "openai": "catalog:",
+    "portkey-ai": "catalog:"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "^7.7.3",
     "@arethetypeswrong/core": "^0.18.2",

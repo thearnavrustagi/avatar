@@ -146,7 +146,7 @@ export const useModelStore = defineStore('modelStore', () => {
   const modelOffset = useLocalStorage('settings/stage-ui-three/modelOffset', { x: 0, y: 0, z: 0 })
   const modelRotationY = useLocalStorage('settings/stage-ui-three/modelRotationY', 0)
   const cameraFOV = useLocalStorage('settings/stage-ui-three/cameraFOV', 40)
-  const trackingMode = useLocalStorage('settings/stage-ui-three/trackingMode', 'none' as 'camera' | 'mouse' | 'none')
+  const trackingMode = useLocalStorage('settings/stage-ui-three/trackingMode', 'camera' as 'camera' | 'mouse' | 'none')
 
   // === View state ===
   // `cameraDistance` is the user-facing distance control. `cameraPosition` and
@@ -170,7 +170,7 @@ export const useModelStore = defineStore('modelStore', () => {
     cameraDistance.value = 0
 
     lookAtTarget.value = { x: 0, y: 0, z: 0 }
-    trackingMode.value = 'none'
+    trackingMode.value = 'camera'
     eyeHeight.value = 0
   }
 

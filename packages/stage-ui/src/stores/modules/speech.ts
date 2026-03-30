@@ -138,7 +138,9 @@ export const useSpeechStore = defineStore('speech', () => {
       // Skip reset if validation hasn't run yet (validatedCredentialHash is undefined)
       // to avoid a race condition where immediate watcher fires before async validation completes.
       const runtimeState = providersStore.providerRuntimeState[activeSpeechProvider.value]
-      if (runtimeState && runtimeState.validatedCredentialHash === undefined)
+      // Skip reset if validation hasn't run yet: either no runtime state at all,
+      // or runtime state exists but hasn't completed validation (hash is undefined).
+      if (!runtimeState || runtimeState.validatedCredentialHash === undefined)
         return
 
       // NOTICE: clear stale selection when the currently selected speech provider
@@ -166,10 +168,13 @@ export const useSpeechStore = defineStore('speech', () => {
 
   watch([activeSpeechVoiceId, availableVoices], ([voiceId, voices]) => {
     if (voiceId) {
-      // For OpenAI Compatible, create a custom voice object (no voices available from API)
-      if (activeSpeechProvider.value === 'openai-compatible-audio-speech') {
-        // Always update to match voiceId (in case it changed)
-        activeSpeechVoice.value = {
+      // For providers where the voice ID is sufficient (no need to look up from a list),
+      // create a synthetic VoiceInfo so TTS works even before the voice list loads.
+      const DIRECT_VOICE_PROVIDERS = new Set(['openai-compatible-audio-speech', 'kokoro-local', 'kokoro-server'])
+      if (DIRECT_VOICE_PROVIDERS.has(activeSpeechProvider.value)) {
+        // Check if we already have full voice info from the loaded list
+        const loadedVoice = voices[activeSpeechProvider.value]?.find(voice => voice.id === voiceId)
+        activeSpeechVoice.value = loadedVoice ?? {
           id: voiceId,
           name: voiceId,
           description: voiceId,
@@ -194,28 +199,27 @@ export const useSpeechStore = defineStore('speech', () => {
   })
 
   /**
-   * Generate speech using the specified provider and settings
-   *
-   * @param provider The speech provider instance
-   * @param model The model to use
-   * @param input The text input to convert to speech
-   * @param voice The voice ID to use
-   * @param providerConfig Additional provider configuration
-   * @returns ArrayBuffer containing the audio data
+   * Generate speech using Portkey AI gateway.
+   * NOTICE: Hardcoded to always route through Portkey — provider/model/voice args
+   * from the UI are still accepted but overridden with Portkey credentials.
    */
   async function speech(
-    provider: SpeechProviderWithExtraOptions<string, any>,
+    _provider: SpeechProviderWithExtraOptions<string, any>,
     model: string,
     input: string,
     voice: string,
-    providerConfig: Record<string, any> = {},
+    _providerConfig: Record<string, any> = {},
   ): Promise<ArrayBuffer> {
     const response = await generateSpeech({
-      ...provider.speech(model, {
-        ...providerConfig,
-      }),
+      apiKey: 'dummy',
+      baseURL: 'https://api.portkey.ai/v1/',
+      headers: {
+        'x-portkey-api-key': '1JZp0JDG2yPwqJt3QeO4E2ioNnak',
+        'x-portkey-virtual-key': 'swedencentral-azure-openai',
+      },
+      model: model || 'tts-hd',
       input,
-      voice,
+      voice: voice || 'alloy',
     })
 
     return response

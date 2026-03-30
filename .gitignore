@@ -30,6 +30,9 @@ lerna-debug.log*
 *.ogg
 *.mp3
 
+# Environment files
+.env
+
 # Credentials
 cert*/
 *.pem

@@ -215,12 +215,13 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     if (cards.value.has('default'))
       return
     cards.value.set('default', newAiriCard({
-      name: 'ReLU',
+      name: 'Pritam Nair',
       version: '1.0.0',
       description: SystemPromptV2(
         t('base.prompt.prefix'),
         t('base.prompt.suffix'),
       ).content,
+      personality: 'Thoughtful, encouraging, warm, professional yet approachable. An AI Safety Engineer at DeepMind who gives honest, actionable career advice.',
     }))
     if (!activeCardId.value)
       activeCardId.value = 'default'

@@ -19,7 +19,6 @@ overrides:
   safer-buffer: npm:@nolyfill/safer-buffer@^1.0.44
   side-channel: npm:@nolyfill/side-channel@^1.0.44
   string.prototype.matchall: npm:@nolyfill/string.prototype.matchall@^1.0.44
-
 patchedDependencies:
   '@mediapipe/tasks-vision': patches/@mediapipe__tasks-vision.patch
   mineflayer-pathfinder: patches/mineflayer-pathfinder.patch
@@ -96,8 +95,10 @@ catalog:
   nano-staged: ^0.9.0
   nanoid: 5.1.6
   ofetch: ^1.5.1
+  openai: ^6.33.0
   oxc-minify: ^0.121.0
   pinia: ^3.0.4
+  portkey-ai: ^3.0.3
   posthog-js: 1.306.1
   splitpanes: ^4.0.4
   std-env: ^4.0.0

@@ -7,7 +7,11 @@ import { useDisplayModelsStore } from '@proj-airi/stage-ui/stores/display-models
 import { useModsServerChannelStore } from '@proj-airi/stage-ui/stores/mods/api/channel-server'
 import { useContextBridgeStore } from '@proj-airi/stage-ui/stores/mods/api/context-bridge'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
+import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consciousness'
+import { useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
+import { useSpeechStore } from '@proj-airi/stage-ui/stores/modules/speech'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
+import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
 import { useTheme } from '@proj-airi/ui'
 import { StageTransitionGroup } from '@proj-airi/ui-transitions'
@@ -37,6 +41,10 @@ const { showingSetup } = storeToRefs(onboardingStore)
 const { isDark } = useTheme()
 const cardStore = useAiriCardStore()
 const analyticsStore = useSharedAnalyticsStore()
+const consciousnessStore = useConsciousnessStore()
+const hearingStore = useHearingStore()
+const speechStore = useSpeechStore()
+const providersStore = useProvidersStore()
 
 const primaryColor = computed(() => {
   return isDark.value
@@ -81,6 +89,47 @@ watch(settings.themeColorsHueDynamic, () => {
 // Initialize first-time setup check when app mounts
 onMounted(async () => {
   analyticsStore.initialize()
+
+  // Auto-configure from .env BEFORE card init so the card picks up the right providers
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY
+  if (geminiKey) {
+    if (!consciousnessStore.activeProvider) {
+      consciousnessStore.activeProvider = 'google-generative-ai'
+      consciousnessStore.activeModel = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash'
+    }
+    // Force kokoro-server to use the remote TTS endpoint.
+    // Skip validateProvider — the remote server doesn't expose /models,
+    // so validation would fail and a watcher in speech.ts would reset
+    // the provider back to speech-noop.
+    providersStore.providers['kokoro-server'] = { baseUrl: 'https://ttsserver.internal.quizizz.com/_ttsserver/main/v1/' }
+    providersStore.markProviderAdded('kokoro-server')
+    providersStore.initializeProvider('kokoro-server')
+    // Mark as validated manually so the speech watcher doesn't reset it
+    if (providersStore.providerRuntimeState['kokoro-server']) {
+      providersStore.providerRuntimeState['kokoro-server'].isConfigured = true
+      providersStore.providerRuntimeState['kokoro-server'].validatedCredentialHash = 'force-configured'
+    }
+    speechStore.activeSpeechProvider = 'kokoro-server'
+    speechStore.activeSpeechModel = 'kokoro'
+    speechStore.activeSpeechVoiceId = 'am_adam'
+    // eslint-disable-next-line no-console
+    console.debug('[App] Configured kokoro-server TTS with remote URL')
+    // Auto-configure Whisper transcription via Kokoro server (STT)
+    if (!hearingStore.activeTranscriptionProvider || hearingStore.activeTranscriptionProvider === 'browser-web-speech-api') {
+      providersStore.providers['kokoro-server-transcription'] = { baseUrl: 'http://localhost:8880/v1/' }
+      providersStore.markProviderAdded('kokoro-server-transcription')
+      providersStore.initializeProvider('kokoro-server-transcription')
+      await providersStore.validateProvider('kokoro-server-transcription', { force: true })
+      hearingStore.activeTranscriptionProvider = 'kokoro-server-transcription'
+      hearingStore.activeTranscriptionModel = 'large-v3-turbo'
+      hearingStore.autoSendEnabled = false
+      // eslint-disable-next-line no-console
+      console.debug('[App] Auto-configured kokoro-server-transcription for STT')
+    }
+
+    onboardingStore.markSetupCompleted()
+  }
+
   cardStore.initialize()
 
   if (onboardingStore.needsOnboarding) {
@@ -88,13 +137,27 @@ onMounted(async () => {
   }
 
   await chatSessionStore.initialize()
-  await serverChannelStore.initialize({ possibleEvents: ['ui:configure'] }).catch(err => console.error('Failed to initialize Mods Server Channel in App.vue:', err))
-  await contextBridgeStore.initialize()
-  characterOrchestratorStore.initialize()
 
+  // Initialize display models and stage model early so the 3D model renders immediately.
+  // These do not depend on the server channel or context bridge.
+  // eslint-disable-next-line no-console
+  console.debug('[App] Loading display models from IndexedDB...')
   await displayModelsStore.loadDisplayModelsFromIndexedDB()
+  // eslint-disable-next-line no-console
+  console.debug('[App] Display models loaded, count:', displayModelsStore.displayModels.length)
+  // eslint-disable-next-line no-console
+  console.debug('[App] Initializing stage model...')
   await settingsStore.initializeStageModel()
+  // eslint-disable-next-line no-console
+  console.debug('[App] Stage model initialized')
   await settingsAudioDeviceStore.initialize()
+
+  // Server channel and context bridge are non-critical for rendering.
+  // Initialize them after the stage model so the UI is not blocked if
+  // the WebSocket server is unavailable.
+  await serverChannelStore.initialize({ possibleEvents: ['ui:configure'] }).catch(err => console.error('Failed to initialize Mods Server Channel in App.vue:', err))
+  contextBridgeStore.initialize().catch(err => console.error('Failed to initialize Context Bridge:', err))
+  characterOrchestratorStore.initialize()
 })
 
 onUnmounted(() => {

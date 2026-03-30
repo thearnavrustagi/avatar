@@ -54,9 +54,26 @@ export function useVRMLipSync(audioNode: Ref<AudioBufferSourceNode | undefined, 
       return
     try {
       newAudioNode.connect(lipSyncNode.value)
+      // eslint-disable-next-line no-console
+      console.debug('[VRM LipSync] Connected audio source to wlipsync node')
     }
-    catch {}
+    catch (err) {
+      console.warn('[VRM LipSync] Failed to connect audio source:', err)
+    }
   }, { immediate: true })
+
+  // NOTICE: Retry connection when lipSyncNode becomes ready after the audio source was already set.
+  // This handles the race condition where audio starts playing before the WASM worklet finishes loading.
+  watch(lipSyncNode, (node) => {
+    if (node && audioNode.value) {
+      try {
+        audioNode.value.connect(node)
+        // eslint-disable-next-line no-console
+        console.debug('[VRM LipSync] Late-connected audio source after worklet ready')
+      }
+      catch {}
+    }
+  })
   onUnmounted(() => audioNode.value?.disconnect())
 
   function update(vrm?: VRMCore, delta = 0.016) {

@@ -208,6 +208,9 @@ const disposeShouldUpdateView = live2dStore.onShouldUpdateView(() => {
 })
 
 async function loadModel() {
+  // eslint-disable-next-line no-console
+  console.debug('[Live2D Model] loadModel called', { modelSrc: modelSrcRef.value?.slice(0, 80), modelId: props.modelId })
+
   await until(modelLoading).not.toBeTruthy()
 
   await modelLoadMutex.acquire()
@@ -216,12 +219,15 @@ async function loadModel() {
   componentState.value = 'loading'
 
   if (!pixiApp.value || !pixiApp.value.stage) {
+    // eslint-disable-next-line no-console
+    console.debug('[Live2D Model] Waiting for pixi app/stage...')
     try {
       // NOTICE: shouldUpdateView can fire while the canvas (pixiApp) is being torn down/recreated.
       // Wait briefly for the new stage instead of bailing out, otherwise we keep a blank screen.
       await until(() => !!pixiApp.value && !!pixiApp.value.stage).toBeTruthy({ timeout: 1500 })
     }
     catch {
+      console.warn('[Live2D Model] Timed out waiting for pixi app/stage')
       modelLoading.value = false
       componentState.value = 'mounted'
       return
@@ -240,7 +246,7 @@ async function loadModel() {
     model.value = undefined
   }
   if (!modelSrcRef.value) {
-    console.warn('No Live2D model source provided.')
+    console.warn('[Live2D Model] No model source provided, skipping load')
     modelLoading.value = false
     componentState.value = 'mounted'
     return
@@ -253,6 +259,8 @@ async function loadModel() {
       return
     }
 
+    // eslint-disable-next-line no-console
+    console.debug('[Live2D Model] Setting up Live2D model from:', modelSrcRef.value?.slice(0, 80))
     const live2DModel = new Live2DModel<PixiLive2DInternalModel>()
     await Live2DFactory.setupLive2DModel(live2DModel, { url: modelSrcRef.value, id: props.modelId }, { autoInteract: false })
     availableMotions.value.forEach((motion) => {

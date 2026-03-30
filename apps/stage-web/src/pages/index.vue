@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 
-import Header from '@proj-airi/stage-layouts/components/Layouts/Header.vue'
 import InteractiveArea from '@proj-airi/stage-layouts/components/Layouts/InteractiveArea.vue'
-import MobileHeader from '@proj-airi/stage-layouts/components/Layouts/MobileHeader.vue'
 import MobileInteractiveArea from '@proj-airi/stage-layouts/components/Layouts/MobileInteractiveArea.vue'
 import workletUrl from '@proj-airi/stage-ui/workers/vad/process.worklet?worker&url'
 
@@ -158,11 +156,7 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
     :top-color="sampledColor"
   >
     <div relative flex="~ col" z-2 h-100dvh w-100vw of-hidden>
-      <!-- header -->
-      <div class="px-0 py-1 md:px-3 md:py-3" w-full gap-2>
-        <Header class="hidden md:flex" />
-        <MobileHeader class="flex md:hidden" />
-      </div>
+      <!-- header removed for professional look -->
       <!-- page -->
       <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col">
         <WidgetStage
@@ -172,7 +166,7 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
             x: positionCursor.x.value,
             y: positionCursor.y.value,
           }"
-          :x-offset="`${isMobile ? position.x : position.x - 10}%`"
+          :x-offset="`${isMobile ? position.x : position.x - 25}%`"
           :y-offset="positionInPercentageString.y"
           :scale="scale"
         />
