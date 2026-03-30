@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "buildCommand": "pnpm turbo run build -F @proj-airi/stage-web",
   "outputDirectory": "apps/stage-web/dist",
   "installCommand": "pnpm install",

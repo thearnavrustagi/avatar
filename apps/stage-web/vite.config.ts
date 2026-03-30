@@ -61,6 +61,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: 'all',
     fs: {
       // To mute errors like:
       //   The request id ".../node_modules/@fontsource/sniglet/files/sniglet-latin-400-normal.woff" is outside of Vite serving allow list.
